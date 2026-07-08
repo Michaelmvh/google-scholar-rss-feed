@@ -22,6 +22,11 @@ WORKDIR /app
 # Mozilla roots, so no ca-certificates package is required.
 COPY --from=builder /app/target/release/google-scholar-rss-feed /usr/local/bin/google-scholar-rss-feed
 
+# Bake the feed definitions into the image so the repo is the single source of
+# truth: edit feeds.toml, push, and the NAS just pulls the updated image. A host
+# mount at /config/feeds.toml can still override this without a rebuild.
+COPY feeds.toml /config/feeds.toml
+
 EXPOSE 3005
 
 # feeds.toml is mounted at /config/feeds.toml (see docker-compose.yml).

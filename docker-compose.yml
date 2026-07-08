@@ -8,7 +8,8 @@ services:
     container_name: scholar-rss
     ports:
       - "3005:3005"
-    volumes:
-      # Edit feeds.toml on the NAS; it is re-read on every request (no restart needed).
-      - ./feeds.toml:/config/feeds.toml:ro
+    # feeds.toml is baked into the image, so no mount is required. To override the
+    # baked config on the host without rebuilding, uncomment the mount below.
+    # volumes:
+    #   - ./feeds.toml:/config/feeds.toml:ro
     restart: unless-stopped

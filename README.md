@@ -64,6 +64,10 @@ also narrows the journal side so a high-volume journal doesn't drown out author 
 The config file is re-read on every request, so edits take effect **without restarting**
 the server. If the file is missing, the server still works using ad-hoc URL parameters.
 
+When running in Docker, `feeds.toml` is **baked into the image** (see below), so the repo is
+the single source of truth: edit `feeds.toml`, push, and redeploy — no need to manage a copy
+on the host.
+
 ## URL parameters
 
 All identifier parameters are repeatable and are merged with the selected feed (if any):
@@ -97,14 +101,20 @@ https://api.openalex.org/sources?search=Nature%20Communications
 
 Point the TRMNL **RSS** plugin at a configured feed URL, e.g.
 `http://<your-host>:3005/?feed=myfield`. Because the feed is defined in `feeds.toml`, you
-can add or change authors and journals by editing the file — the TRMNL URL never changes.
+can add or change authors by editing the file — the TRMNL URL never changes.
 
 ## Running with Docker
 
 A multi-stage [`Dockerfile`](./Dockerfile) and [`docker-compose.yml`](./docker-compose.yml)
-are included. The image binds to `0.0.0.0:3005` and expects `feeds.toml` mounted at
-`/config/feeds.toml` (already wired up in the compose file). No CA-certificate package is
-needed — TLS to the OpenAlex API uses `rustls`' bundled roots.
+are included. The image binds to `0.0.0.0:3005`. Your feed definitions from
+[`feeds.toml`](./feeds.toml) are **baked into the image** at `/config/feeds.toml`, so no
+config file needs to live on the host. No CA-certificate package is needed — TLS to the
+OpenAlex API uses `rustls`' bundled roots.
+
+To change your feeds, edit `feeds.toml` in this repo and rebuild/republish the image (the
+GitHub Actions workflow does this automatically on push). If you'd rather override the baked
+config on the host without rebuilding, mount your own file over `/config/feeds.toml`
+(a commented-out example is in `docker-compose.yml`).
 
 The compose file references a **prebuilt image** published to the GitHub Container Registry
 (GHCR) by [`.github/workflows/docker-publish.yml`](./.github/workflows/docker-publish.yml),
@@ -122,9 +132,6 @@ For local development you can still build from source instead of pulling:
 docker compose up -d --build
 ```
 
-Edit `feeds.toml` on the host at any time; it is re-read on every request, so changes take
-effect without restarting the container.
-
 ### Publishing the image (one-time setup)
 
 The workflow builds `linux/amd64` and pushes to
@@ -141,11 +148,10 @@ manual dispatch. It uses the built-in `GITHUB_TOKEN` — no extra secrets requir
 ### Deploying on a Synology NAS (Container Manager)
 
 Tested on a DS423+ (x86_64). Any Intel/AMD Synology with Container Manager works the same way.
-Because the image is prebuilt, the NAS only pulls and runs it.
+Because the image is prebuilt and your feeds are baked in, the NAS only pulls and runs it —
+there is no config file to manage on the NAS.
 
-1. Put a small deployment folder on the NAS, e.g. `/volume1/docker/scholar-rss`, containing
-   just your edited `feeds.toml` and a `docker-compose.yml`. You can `git clone` the whole
-   repo there, or create the folder with only these two files:
+1. Put a small `docker-compose.yml` on the NAS, e.g. at `/volume1/docker/scholar-rss`:
 
    ```yaml
    # docker-compose.yml (NAS)
@@ -155,8 +161,6 @@ Because the image is prebuilt, the NAS only pulls and runs it.
        container_name: scholar-rss
        ports:
          - "3005:3005"
-       volumes:
-         - ./feeds.toml:/config/feeds.toml:ro
        restart: unless-stopped
    ```
 
@@ -165,6 +169,6 @@ Because the image is prebuilt, the NAS only pulls and runs it.
    container (no build step).
 3. Reach the feed at `http://<nas-ip>:3005/?feed=myfield`.
 
-**Updating:** in the Project, use **Pull** (or `docker compose pull && docker compose up -d`)
-to grab the latest published image. To change which authors a feed tracks, just edit
-`feeds.toml` — no pull, rebuild, or restart required.
+**Updating:** to change which authors a feed tracks, edit `feeds.toml` **in this repo** and
+push — the workflow republishes the image. Then, in the NAS Project, use **Pull** (or
+`docker compose pull && docker compose up -d`) to roll out the change.
