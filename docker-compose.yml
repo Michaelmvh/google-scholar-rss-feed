@@ -1,0 +1,14 @@
+services:
+  scholar-rss:
+    # Prebuilt image published by the GitHub Actions workflow. On the NAS this is
+    # pulled directly (`docker compose pull`), so nothing is compiled there.
+    image: ghcr.io/michaelmvh/google-scholar-rss-feed:latest
+    # Kept so `docker compose up --build` still works for local development.
+    build: .
+    container_name: scholar-rss
+    ports:
+      - "3005:3005"
+    volumes:
+      # Edit feeds.toml on the NAS; it is re-read on every request (no restart needed).
+      - ./feeds.toml:/config/feeds.toml:ro
+    restart: unless-stopped

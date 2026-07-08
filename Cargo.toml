@@ -1,6 +1,6 @@
 [package]
 name = "google-scholar-rss-feed"
-description = "Generates an RSS feed from a user's scientific publications, parses data from Google Scholar."
+description = "Generates a single RSS feed of recent scientific publications for one or more authors, sorted by date. Parses data from OpenAlex."
 repository = "https://github.com/Julien-cpsn/google-scholar-rss-feed"
 documentation = "https://github.com/Julien-cpsn/google-scholar-rss-feed"
 authors = ["Julien-cpsn"]
@@ -15,7 +15,10 @@ parking_lot = { version = "0.12.3", default-features = false, features = ["send_
 hyper = { version = "1.6.0", default-features = false, features = ["server", "http1"] }
 hyper-util = { version = "0.1.10", default-features = false, features = ["tokio", "server"] }
 http-body-util = { version = "0.1.2", default-features = false }
-google-scholar-query = { version = "0.1.6" }
+reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.138"
+toml = "0.8.19"
 rss = { version = "2.0.12", default-features = false, features = ["builders", "url"] }
 lazy_static = { version = "1.5.0", default-features = false }
 url = { version = "2.5.4", default-features = false }
