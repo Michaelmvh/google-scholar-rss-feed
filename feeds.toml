@@ -1,0 +1,36 @@
+default_feed = "myfield"
+
+[settings]
+# Used for OpenAlex's "polite pool". Replace with your own contact email.
+mailto = "you@example.com"
+# Default recency window (in days) when a feed omits `from`.
+from_days = 365
+
+# Each [feeds.<name>] block defines a feed selectable via ?feed=<name>.
+# `default_feed` above is the one served at the bare "/" URL.
+[feeds.myfield]
+title = "Machine Learning & Synthetic Biology"
+# OpenAlex author ids (most precise; find them at https://openalex.org).
+author_ids = ["A5135542215", "A5005023517", "A5010124873"]
+# You can also list ORCIDs and names (names are imprecise for common authors):
+# orcids  = ["0000-0002-1825-0097"]
+# authors = ["Regina Barzilay"]
+# Journals (sources) can be added too. A feed with BOTH authors and journals
+# returns the union: the authors' papers PLUS all recent papers in the journals.
+# source_ids = ["S137773608"]          # OpenAlex source ids (most precise)
+# issns      = ["2041-1723"]           # resolved to source ids
+# journals   = ["Nature Communications"]  # name search (imprecise; logged)
+# Optional OpenAlex topic ids to constrain results (also narrows the journal side):
+# topics  = ["T10091"]
+# Optional explicit start date (overrides from_days):
+# from    = "2025-01-01"
+
+[feeds.synbio]
+title = "Synthetic Biology"
+author_ids = ["A5135542215", "A5005023517"]
+
+# A journal-only feed: recent papers from specific journals, no authors required.
+[feeds.top-journals]
+title = "Top Journals"
+source_ids = ["S137773608", "S64187185"]  # Nature, Nature Communications
+
