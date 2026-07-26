@@ -1,0 +1,7 @@
+services:
+  scholar-rss:
+    image: ghcr.io/michaelmvh/google-scholar-rss-feed:latest
+    container_name: scholar-rss
+    ports:
+      - "3005:3005"
+    restart: unless-stopped
