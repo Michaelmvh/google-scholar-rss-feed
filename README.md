@@ -105,8 +105,10 @@ can add or change authors by editing the file — the TRMNL URL never changes.
 
 ## Running with Docker
 
-A multi-stage [`Dockerfile`](./Dockerfile) and [`docker-compose.yml`](./docker-compose.yml)
-are included. The image binds to `0.0.0.0:3005`. Your feed definitions from
+A multi-stage [`Dockerfile`](./Dockerfile) and separate Compose configurations for
+[local development](./local/docker-compose.yml) and
+[Synology NAS deployment](./NAS/docker-compose.yml) are included. The image binds to
+`0.0.0.0:3005`. Your feed definitions from
 [`feeds.toml`](./feeds.toml) are **baked into the image** at `/config/feeds.toml`, so no
 config file needs to live on the host. No CA-certificate package is needed — TLS to the
 OpenAlex API uses `rustls`' bundled roots.
@@ -114,22 +116,22 @@ OpenAlex API uses `rustls`' bundled roots.
 To change your feeds, edit `feeds.toml` in this repo and rebuild/republish the image (the
 GitHub Actions workflow does this automatically on push). If you'd rather override the baked
 config on the host without rebuilding, mount your own file over `/config/feeds.toml`
-(a commented-out example is in `docker-compose.yml`).
+(a commented-out example is in [`local/docker-compose.yml`](./local/docker-compose.yml)).
 
-The compose file references a **prebuilt image** published to the GitHub Container Registry
+The Compose files reference a **prebuilt image** published to the GitHub Container Registry
 (GHCR) by [`.github/workflows/docker-publish.yml`](./.github/workflows/docker-publish.yml),
 so the NAS never has to compile anything:
 
 ```sh
-docker compose pull        # fetch the prebuilt ghcr.io image
-docker compose up -d
-# then browse http://<host>:3005/?feed=myfield
+docker compose -f local/docker-compose.yml pull
+docker compose -f local/docker-compose.yml up -d
+# then browse http://localhost:3005/?feed=myfield
 ```
 
 For local development you can still build from source instead of pulling:
 
 ```sh
-docker compose up -d --build
+docker compose -f local/docker-compose.yml up -d --build
 ```
 
 ### Publishing the image (one-time setup)
@@ -148,27 +150,34 @@ manual dispatch. It uses the built-in `GITHUB_TOKEN` — no extra secrets requir
 ### Deploying on a Synology NAS (Container Manager)
 
 Tested on a DS423+ (x86_64). Any Intel/AMD Synology with Container Manager works the same way.
-Because the image is prebuilt and your feeds are baked in, the NAS only pulls and runs it —
-there is no config file to manage on the NAS.
+The NAS configuration includes a Cloudflare Tunnel, so TRMNL can reach the feed over HTTPS
+without opening router ports.
 
-1. Put a small `docker-compose.yml` on the NAS, e.g. at `/volume1/docker/scholar-rss`:
+1. In **Cloudflare Zero Trust → Networks → Tunnels**, create a tunnel and copy its token.
+2. Add a public hostname such as `reading.example.com` with service
+   `http://scholar-rss:3005`.
+3. In File Station, create `/volume1/docker/scholar-rss`.
+4. Upload [`NAS/docker-compose.yml`](./NAS/docker-compose.yml) directly into that folder. It
+   already has the filename expected by Container Manager, so no rename is needed.
+5. Create `/volume1/docker/scholar-rss/.env` containing only:
 
-   ```yaml
-   # docker-compose.yml (NAS)
-   services:
-     scholar-rss:
-       image: ghcr.io/michaelmvh/google-scholar-rss-feed:latest
-       container_name: scholar-rss
-       ports:
-         - "3005:3005"
-       restart: unless-stopped
+   ```text
+   TUNNEL_TOKEN=your-token-here
    ```
 
-2. Open **Container Manager → Project → Create**, point it at that folder, and choose
-   **Use existing docker-compose.yml**. Container Manager pulls the image and starts the
-   container (no build step).
-3. Reach the feed at `http://<nas-ip>:3005/?feed=myfield`.
+6. Open **Container Manager → Project → Create**, point it at that folder, and choose
+   **Use existing docker-compose.yml**. Container Manager pulls both images and starts them.
+7. Confirm `scholar-rss` and `scholar-rss-tunnel` are running, then open
+   `https://reading.example.com/?feed=myfield`.
 
-**Updating:** to change which authors a feed tracks, edit `feeds.toml` **in this repo** and
-push — the workflow republishes the image. Then, in the NAS Project, use **Pull** (or
-`docker compose pull && docker compose up -d`) to roll out the change.
+Keep `.env` only on the NAS; it is ignored by Git and must never be committed.
+
+**Updating:** edit the application or `feeds.toml` in this repo and push. GitHub Actions
+publishes a new `latest` image to GHCR. The NAS can deploy it from Container Manager with
+**Pull**, or from a scheduled task:
+
+```sh
+cd /volume1/docker/scholar-rss &&
+/usr/local/bin/docker compose pull &&
+/usr/local/bin/docker compose up -d --remove-orphans
+```

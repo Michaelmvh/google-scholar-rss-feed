@@ -1,15 +1,14 @@
 services:
   scholar-rss:
-    # Prebuilt image published by the GitHub Actions workflow. On the NAS this is
-    # pulled directly (`docker compose pull`), so nothing is compiled there.
+    # Prebuilt image published by the GitHub Actions workflow.
     image: ghcr.io/michaelmvh/google-scholar-rss-feed:latest
-    # Kept so `docker compose up --build` still works for local development.
-    build: .
+    # Build from the repository root for local development.
+    build: ..
     container_name: scholar-rss
     ports:
       - "3005:3005"
     # feeds.toml is baked into the image, so no mount is required. To override the
     # baked config on the host without rebuilding, uncomment the mount below.
     # volumes:
-    #   - ./feeds.toml:/config/feeds.toml:ro
+    #   - ../feeds.toml:/config/feeds.toml:ro
     restart: unless-stopped

@@ -1,7 +1,19 @@
+# Synology NAS deployment with a Cloudflare Tunnel for public HTTPS access.
+# Put a .env file beside this file containing: TUNNEL_TOKEN=xxxxxxxx
 services:
   scholar-rss:
     image: ghcr.io/michaelmvh/google-scholar-rss-feed:latest
     container_name: scholar-rss
-    ports:
-      - "3005:3005"
+    expose:
+      - "3005"
+    restart: unless-stopped
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: scholar-rss-tunnel
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    depends_on:
+      - scholar-rss
     restart: unless-stopped
