@@ -11,7 +11,14 @@ from_days = 365
 [feeds.myfield]
 title = "Machine Learning & Synthetic Biology"
 # OpenAlex author ids (most precise; find them at https://openalex.org).
-author_ids = ["A5135542215", "A5005023517", "A5010124873"]
+author_ids = [
+  "A5135542215", # David Baker
+  "A5005023517", # Jeff Nivala
+  "A5010124873", # Regina Barzilay
+  "A5048915657", # Tommi Jaakkola
+  "A5084204507", # Sergey Ovchinnikov
+  "A5016342562", # Pranam Chatterjee
+]
 # You can also list ORCIDs and names (names are imprecise for common authors):
 # orcids  = ["0000-0002-1825-0097"]
 # authors = ["Regina Barzilay"]
@@ -33,4 +40,3 @@ author_ids = ["A5135542215", "A5005023517"]
 [feeds.top-journals]
 title = "Top Journals"
 source_ids = ["S137773608", "S64187185"]  # Nature, Nature Communications
-
