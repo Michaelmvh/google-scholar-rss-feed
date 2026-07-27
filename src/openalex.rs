@@ -89,19 +89,14 @@ impl Work {
         self.id.clone()
     }
 
-    /// Comma-separated author display names.
-    pub fn authors_joined(&self) -> Option<String> {
-        let names: Vec<String> = self
-            .authorships
-            .as_ref()?
+    /// Author display names.
+    pub fn author_names(&self) -> Vec<String> {
+        self.authorships
+            .as_deref()
+            .unwrap_or_default()
             .iter()
             .filter_map(|a| a.author.as_ref().and_then(|au| au.display_name.clone()))
-            .collect();
-        if names.is_empty() {
-            None
-        } else {
-            Some(names.join(", "))
-        }
+            .collect()
     }
 
     /// Venue (journal / repository) name.

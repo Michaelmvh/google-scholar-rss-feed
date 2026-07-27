@@ -16,9 +16,8 @@ use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
-use rss::{
-    Category, Channel, ChannelBuilder, Enclosure, GuidBuilder, ItemBuilder, Source, TextInput,
-};
+use rss::extension::dublincore::DublinCoreExtension;
+use rss::{Category, Channel, ChannelBuilder, GuidBuilder, ItemBuilder, Source, TextInput};
 use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
@@ -467,6 +466,7 @@ async fn build_channel(request: &FeedRequest, config: &Config) -> Channel {
 
     let mut channel = ChannelBuilder::default()
         .title(title)
+        .link(String::from("https://openalex.org"))
         .description(description)
         .language(String::from("en-US"))
         .generator(String::from("google-scholar-rss-feed"))
@@ -733,21 +733,28 @@ fn work_to_item(work: &Work) -> rss::Item {
         });
     }
 
-    let enclosure = work.oa_pdf_url().map(|pdf_url| Enclosure {
-        url: pdf_url,
-        length: String::from(""),
-        mime_type: String::from("application/pdf"),
+    if let Some(pdf_url) = work.oa_pdf_url() {
+        let pdf = format!("Open-access PDF: {pdf_url}");
+        description = Some(match description {
+            Some(current) => format!("{current}\n{pdf}"),
+            None => pdf,
+        });
+    }
+
+    let author_names = work.author_names();
+    let dublin_core = (!author_names.is_empty()).then(|| DublinCoreExtension {
+        creators: author_names,
+        ..DublinCoreExtension::default()
     });
 
     ItemBuilder::default()
         .title(Some(work.best_title()))
-        .author(work.authors_joined())
         .description(description)
         .link(link)
         .guid(guid)
         .source(source)
         .pub_date(work.publication_date.as_deref().and_then(to_rfc2822))
-        .enclosure(enclosure)
+        .dublin_core_ext(dublin_core)
         .content(work.abstract_text())
         .build()
 }
@@ -914,5 +921,34 @@ mod tests {
         );
 
         assert_eq!(merge_works(vec![first], vec![second]).len(), 2);
+    }
+
+    #[test]
+    fn item_uses_dublin_core_creators_and_omits_unknown_length_enclosure() {
+        let work: Work = serde_json::from_value(serde_json::json!({
+            "id": "https://openalex.org/W1",
+            "title": "Example",
+            "authorships": [
+                {"author": {"display_name": "Ada Lovelace"}},
+                {"author": {"display_name": "Grace Hopper"}}
+            ],
+            "best_oa_location": {
+                "pdf_url": "https://example.com/paper.pdf"
+            }
+        }))
+        .unwrap();
+
+        let item = work_to_item(&work);
+
+        assert!(item.author.is_none());
+        assert!(item.enclosure.is_none());
+        assert_eq!(
+            item.dublin_core_ext.unwrap().creators,
+            vec!["Ada Lovelace", "Grace Hopper"]
+        );
+        assert!(item
+            .description
+            .as_deref()
+            .is_some_and(|description| description.contains("https://example.com/paper.pdf")));
     }
 }
