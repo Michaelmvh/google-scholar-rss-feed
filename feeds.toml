@@ -1,4 +1,4 @@
-default_feed = "myfield"
+default_feed = "bioml"
 
 [settings]
 # Default recency window (in days) when a feed omits `from`.
@@ -6,7 +6,7 @@ from_days = 365
 
 # Each [feeds.<name>] block defines a feed selectable via ?feed=<name>.
 # `default_feed` above is the one served at the bare "/" URL.
-[feeds.myfield]
+[feeds.bioml]
 title = "Machine Learning & Synthetic Biology"
 # OpenAlex author ids (most precise; find them at https://openalex.org).
 author_ids = [
@@ -29,10 +29,6 @@ author_ids = [
 # topics  = ["T10091"]
 # Optional explicit start date (overrides from_days):
 # from    = "2025-01-01"
-
-[feeds.synbio]
-title = "Synthetic Biology"
-author_ids = ["A5135542215", "A5005023517"]
 
 # A journal-only feed: recent papers from specific journals, no authors required.
 [feeds.top-journals]
