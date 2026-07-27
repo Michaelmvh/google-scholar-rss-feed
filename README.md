@@ -46,14 +46,14 @@ The image and Compose file update independently:
 Named feeds live in [`feeds.toml`](./feeds.toml), keeping the public URL stable when authors,
 journals, or topics change.
 
-Before production use, replace the placeholder `mailto` with a real contact address. OpenAlex
-uses it for its polite API pool; it is sent to OpenAlex but is not included in the RSS feed.
+Set `GSRF_MAILTO` to a real contact address before production use. OpenAlex uses it for its
+polite API pool; it is sent to OpenAlex but is not included in the RSS feed or baked into the
+container image.
 
 ```toml
 default_feed = "myfield"           # served at bare "/"
 
 [settings]
-mailto = "you@example.com"         # replace with a real contact address
 from_days = 365                    # default recency window
 
 [feeds.myfield]
@@ -156,7 +156,7 @@ path:
 
 ```sh
 cargo run -- "0.0.0.0:3005" --config feeds.toml
-GSRF_CONFIG=feeds.toml cargo run
+GSRF_CONFIG=feeds.toml GSRF_MAILTO=you@example.com cargo run
 ```
 
 Useful development checks:
@@ -193,7 +193,8 @@ docker compose -f local/docker-compose.yml down
 
 The local Compose file contains a commented bind mount for `feeds.toml`. Enable it when config
 changes should be visible without rebuilding the image; restart the container to clear any
-cached feed immediately.
+cached feed immediately. Set `GSRF_MAILTO` in your shell or in a repository-root `.env` file
+before starting Compose.
 
 ## GitHub Actions and GHCR
 

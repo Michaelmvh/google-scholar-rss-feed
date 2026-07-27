@@ -5,6 +5,8 @@ services:
     # Build from the repository root for local development.
     build: ..
     container_name: scholar-rss
+    environment:
+      - GSRF_MAILTO=${GSRF_MAILTO:-}
     ports:
       - "3005:3005"
     # feeds.toml is baked into the image, so no mount is required. To override the

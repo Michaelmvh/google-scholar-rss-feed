@@ -263,14 +263,14 @@ async fn resolve_feed_request(
     }
 
     for orcid in feed.orcids.iter().chain(adhoc_orcids.iter()) {
-        match resolve_orcid(orcid, config).await {
+        match resolve_orcid(orcid).await {
             Some(id) => author_ids.push(id),
             None => eprintln!("Could not resolve ORCID \"{orcid}\""),
         }
     }
 
     for name in feed.authors.iter().chain(adhoc_authors.iter()) {
-        match resolve_author_name(name, config).await {
+        match resolve_author_name(name).await {
             Some((id, display)) => {
                 println!("Resolved author \"{name}\" -> {id} ({display})");
                 author_ids.push(id);
@@ -290,14 +290,14 @@ async fn resolve_feed_request(
     }
 
     for issn in feed.issns.iter().chain(adhoc_issns.iter()) {
-        match resolve_issn(issn, config).await {
+        match resolve_issn(issn).await {
             Some(id) => source_ids.push(id),
             None => eprintln!("Could not resolve ISSN \"{issn}\""),
         }
     }
 
     for name in feed.journals.iter().chain(adhoc_journals.iter()) {
-        match resolve_journal_name(name, config).await {
+        match resolve_journal_name(name).await {
             Some((id, display)) => {
                 println!("Resolved journal \"{name}\" -> {id} ({display})");
                 source_ids.push(id);
@@ -345,16 +345,19 @@ fn default_from_date(from_days: Option<u32>) -> String {
     date.format("%Y-%m-%d").to_string()
 }
 
-fn mailto(config: &Config) -> Option<String> {
-    config.settings.mailto.clone()
+fn mailto() -> Option<String> {
+    env::var("GSRF_MAILTO")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 /// Resolve an ORCID to a bare OpenAlex author id.
-async fn resolve_orcid(orcid: &str, config: &Config) -> Option<String> {
+async fn resolve_orcid(orcid: &str) -> Option<String> {
     let orcid = orcid.trim();
     let orcid = orcid.rsplit('/').next().unwrap_or(orcid);
     let mut url = url::Url::parse(&format!("{API_BASE}/authors/https://orcid.org/{orcid}")).ok()?;
-    if let Some(m) = mailto(config) {
+    if let Some(m) = mailto() {
         url.query_pairs_mut().append_pair("mailto", &m);
     }
     let author = CLIENT
@@ -369,12 +372,12 @@ async fn resolve_orcid(orcid: &str, config: &Config) -> Option<String> {
 }
 
 /// Resolve an author display name (best match) to (id, display_name).
-async fn resolve_author_name(name: &str, config: &Config) -> Option<(String, String)> {
+async fn resolve_author_name(name: &str) -> Option<(String, String)> {
     let mut pairs = vec![
         ("search".to_string(), name.to_string()),
         ("per_page".to_string(), "1".to_string()),
     ];
-    if let Some(m) = mailto(config) {
+    if let Some(m) = mailto() {
         pairs.push(("mailto".to_string(), m));
     }
     let url = url::Url::parse_with_params(&format!("{API_BASE}/authors"), &pairs).ok()?;
@@ -393,10 +396,10 @@ async fn resolve_author_name(name: &str, config: &Config) -> Option<(String, Str
 }
 
 /// Resolve an ISSN to a bare OpenAlex source id.
-async fn resolve_issn(issn: &str, config: &Config) -> Option<String> {
+async fn resolve_issn(issn: &str) -> Option<String> {
     let issn = issn.trim();
     let mut url = url::Url::parse(&format!("{API_BASE}/sources/issn:{issn}")).ok()?;
-    if let Some(m) = mailto(config) {
+    if let Some(m) = mailto() {
         url.query_pairs_mut().append_pair("mailto", &m);
     }
     let source = CLIENT
@@ -411,12 +414,12 @@ async fn resolve_issn(issn: &str, config: &Config) -> Option<String> {
 }
 
 /// Resolve a journal display name (best match) to (id, display_name).
-async fn resolve_journal_name(name: &str, config: &Config) -> Option<(String, String)> {
+async fn resolve_journal_name(name: &str) -> Option<(String, String)> {
     let mut pairs = vec![
         ("search".to_string(), name.to_string()),
         ("per_page".to_string(), "1".to_string()),
     ];
-    if let Some(m) = mailto(config) {
+    if let Some(m) = mailto() {
         pairs.push(("mailto".to_string(), m));
     }
     let url = url::Url::parse_with_params(&format!("{API_BASE}/sources"), &pairs).ok()?;
@@ -539,8 +542,8 @@ async fn fetch_works(request: &FeedRequest, config: &Config) -> Vec<Work> {
 
     // Run the (up to two) queries concurrently.
     let (author_works, journal_works) = tokio::join!(
-        fetch_works_for_filter(author_filter, config),
-        fetch_works_for_filter(journal_filter, config),
+        fetch_works_for_filter(author_filter),
+        fetch_works_for_filter(journal_filter),
     );
 
     merge_works(author_works, journal_works)
@@ -659,7 +662,7 @@ fn version_quality(work: &Work) -> (bool, bool, bool, &str) {
 }
 
 /// Run a single `/works` query for the given filter (or return empty if `None`).
-async fn fetch_works_for_filter(filter: Option<String>, config: &Config) -> Vec<Work> {
+async fn fetch_works_for_filter(filter: Option<String>) -> Vec<Work> {
     let filter = match filter {
         Some(f) => f,
         None => return Vec::new(),
@@ -670,7 +673,7 @@ async fn fetch_works_for_filter(filter: Option<String>, config: &Config) -> Vec<
         ("sort".to_string(), "publication_date:desc".to_string()),
         ("per_page".to_string(), "50".to_string()),
     ];
-    if let Some(m) = mailto(config) {
+    if let Some(m) = mailto() {
         pairs.push(("mailto".to_string(), m));
     }
 

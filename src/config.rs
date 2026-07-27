@@ -15,8 +15,6 @@ pub struct Config {
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Settings {
-    /// Contact used for OpenAlex's polite pool (`mailto`).
-    pub mailto: Option<String>,
     /// Default recency window in days when a feed omits `from`.
     pub from_days: Option<u32>,
 }

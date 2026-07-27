@@ -1,9 +1,11 @@
 # Synology NAS deployment with a Cloudflare Tunnel for public HTTPS access.
-# Put a .env file beside this file containing: TUNNEL_TOKEN=xxxxxxxx
+# Put a .env file beside this file containing TUNNEL_TOKEN and GSRF_MAILTO.
 services:
   scholar-rss:
     image: ghcr.io/michaelmvh/google-scholar-rss-feed:latest
     container_name: scholar-rss
+    environment:
+      - GSRF_MAILTO=${GSRF_MAILTO}
     expose:
       - "3005"
     restart: unless-stopped

@@ -1,8 +1,6 @@
 default_feed = "myfield"
 
 [settings]
-# Used for OpenAlex's "polite pool". Replace with your own contact email.
-mailto = "you@example.com"
 # Default recency window (in days) when a feed omits `from`.
 from_days = 365
 
