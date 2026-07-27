@@ -29,7 +29,7 @@ COPY feeds.toml /config/feeds.toml
 
 EXPOSE 3005
 
-# feeds.toml is mounted at /config/feeds.toml (see docker-compose.yml).
+# Use the baked config by default; a host bind mount can override this path.
 ENV GSRF_CONFIG=/config/feeds.toml
 
 # Bind to all interfaces so the feed is reachable outside the container.

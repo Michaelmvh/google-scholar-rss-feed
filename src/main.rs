@@ -171,6 +171,10 @@ async fn send_rss(request: Request<Incoming>) -> Result<Response<Full<Bytes>>, E
     Response::builder()
         .header("Content-Type", "text/xml; charset=utf-8")
         .header("Access-Control-Allow-Origin", "*")
+        .header(
+            "Cache-Control",
+            "public, max-age=300, s-maxage=7200, stale-while-revalidate=86400",
+        )
         .status(StatusCode::OK)
         .body(Full::new(Bytes::from(channel.to_string())))
 }
