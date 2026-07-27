@@ -443,8 +443,7 @@ async fn generate_channel_if_needed(request: FeedRequest) -> Channel {
         return channel;
     }
 
-    let config = Config::load(config_path());
-    let channel = build_channel(&request, &config).await;
+    let channel = build_channel(&request).await;
     RSS_CHANNELS.write().insert(request, channel.clone());
     channel
 }
@@ -457,7 +456,7 @@ fn find_cached(key: &(Vec<String>, Vec<String>, String, Vec<String>)) -> Option<
         .map(|(_, channel)| channel.clone())
 }
 
-async fn build_channel(request: &FeedRequest, config: &Config) -> Channel {
+async fn build_channel(request: &FeedRequest) -> Channel {
     println!(
         "Building RSS channel for authors [{}] journals [{}] from {}",
         request.author_ids.join(", "),
@@ -484,7 +483,7 @@ async fn build_channel(request: &FeedRequest, config: &Config) -> Channel {
         .categories(vec![Category::from("Scientific Research")])
         .build();
 
-    let works = fetch_works(request, config).await;
+    let works = fetch_works(request).await;
     let items = works.iter().map(work_to_item).collect::<Vec<_>>();
     channel.set_items(items);
 
@@ -519,7 +518,7 @@ fn channel_metadata(request: &FeedRequest) -> (String, String) {
 
 /// Fetch works for the feed as the UNION of an author query and a journal query,
 /// merged, deduplicated by work id, and sorted newest-first.
-async fn fetch_works(request: &FeedRequest, config: &Config) -> Vec<Work> {
+async fn fetch_works(request: &FeedRequest) -> Vec<Work> {
     let topic_suffix = if request.topics.is_empty() {
         String::new()
     } else {
