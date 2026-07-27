@@ -16,6 +16,17 @@ author_ids = [
   "A5048915657", # Tommi Jaakkola
   "A5084204507", # Sergey Ovchinnikov
   "A5016342562", # Pranam Chatterjee
+  "A5008892922", # Matthew D. Golub
+  "A5114342824", # Nathaniel Corley
+  "A5013638126", # Michael M. Bronstein
+  "A5105925656", # Frank DiMaio
+  "A5079904764", # Pang Wei Koh
+  "A5009046042", # Ariane Mora
+  "A5060834723", # Kevin K. Yang
+  "A5076162644", # Connor W. Coley
+  "A5012131505", # Chris Thachuk
+  "A5059179935", # John Jumper
+  "A5071306257", # Ava P. Amini
 ]
 # You can also list ORCIDs and names (names are imprecise for common authors):
 # orcids  = ["0000-0002-1825-0097"]
