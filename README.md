@@ -88,6 +88,13 @@ A feed requires at least one author or journal. If both are present, results are
 of the authors' publications and recent publications in the journals. Results are
 de-duplicated and sorted newest-first. A topic filter applies to both sides of the union.
 
+OpenAlex sometimes stores a preprint and its published paper as separate works. The feed
+conservatively groups records only when their normalized titles and complete OpenAlex author-ID
+sets match. It retains the version with an open PDF, then an abstract, then published status,
+then the newest date. Links to the other versions are included in the retained item's
+description. Records with missing author IDs are kept separate rather than risking a false
+match.
+
 The config is read on every request. Identical resolved queries are cached for up to one hour,
 so restarting the application clears the cache immediately. In Docker, changing the repository
 copy of `feeds.toml` requires publishing and deploying a new image because the file is baked

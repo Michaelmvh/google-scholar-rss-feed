@@ -245,9 +245,7 @@ async fn resolve_feed_request(
                     Some(name) => match config.feeds.get(name) {
                         Some(f) => Some(f),
                         None => {
-                            return Err(format!(
-                                "Configured default_feed \"{name}\" not found."
-                            ))
+                            return Err(format!("Configured default_feed \"{name}\" not found."))
                         }
                     },
                     None => return Ok(None),
@@ -449,9 +447,7 @@ async fn generate_channel_if_needed(request: FeedRequest) -> Channel {
     channel
 }
 
-fn find_cached(
-    key: &(Vec<String>, Vec<String>, String, Vec<String>),
-) -> Option<Channel> {
+fn find_cached(key: &(Vec<String>, Vec<String>, String, Vec<String>)) -> Option<Channel> {
     let channels = RSS_CHANNELS.read();
     channels
         .iter()
@@ -550,20 +546,27 @@ async fn fetch_works(request: &FeedRequest, config: &Config) -> Vec<Work> {
     merge_works(author_works, journal_works)
 }
 
-/// Merge two result sets into one, deduplicating by work id (items without an id are all
-/// kept) and sorting newest-first (works missing a publication date sort last).
+/// Merge two result sets, deduplicating exact OpenAlex records and conservatively grouping
+/// versions with the same normalized title and complete author-id set.
 fn merge_works(primary: Vec<Work>, secondary: Vec<Work>) -> Vec<Work> {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut version_groups: HashMap<(String, Vec<String>), usize> = HashMap::new();
     let mut works: Vec<Work> = Vec::new();
+
     for work in primary.into_iter().chain(secondary) {
-        match &work.id {
-            Some(id) => {
-                if seen.insert(id.clone()) {
-                    works.push(work);
-                }
-            }
-            None => works.push(work),
+        if work.id.as_ref().is_some_and(|id| !seen.insert(id.clone())) {
+            continue;
         }
+
+        if let Some(key) = version_key(&work) {
+            if let Some(index) = version_groups.get(&key) {
+                merge_work_version(&mut works[*index], work);
+                continue;
+            }
+            version_groups.insert(key, works.len());
+        }
+
+        works.push(work);
     }
 
     works.sort_by(|a, b| {
@@ -573,6 +576,86 @@ fn merge_works(primary: Vec<Work>, secondary: Vec<Work>) -> Vec<Work> {
     });
 
     works
+}
+
+fn version_key(work: &Work) -> Option<(String, Vec<String>)> {
+    let title = work.title.as_ref().or(work.display_name.as_ref())?;
+    let title = normalize_title(title);
+    if title.is_empty() {
+        return None;
+    }
+
+    let authorships = work.authorships.as_ref()?;
+    if authorships.is_empty() {
+        return None;
+    }
+
+    let mut author_ids = authorships
+        .iter()
+        .map(|authorship| {
+            authorship
+                .author
+                .as_ref()?
+                .id
+                .as_ref()
+                .map(|id| normalize_id(id))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    author_ids.sort();
+    author_ids.dedup();
+
+    (!author_ids.is_empty()).then_some((title, author_ids))
+}
+
+fn normalize_title(title: &str) -> String {
+    let mut normalized = String::new();
+    let mut separated = false;
+
+    for character in title.chars().flat_map(char::to_lowercase) {
+        if character.is_alphanumeric() {
+            if separated && !normalized.is_empty() {
+                normalized.push(' ');
+            }
+            normalized.push(character);
+            separated = false;
+        } else if !normalized.is_empty() {
+            separated = true;
+        }
+    }
+
+    normalized
+}
+
+fn merge_work_version(existing: &mut Work, mut candidate: Work) {
+    if version_quality(&candidate) > version_quality(existing) {
+        std::mem::swap(existing, &mut candidate);
+    }
+
+    let selected_link = existing.best_link();
+    let mut alternate_links = std::mem::take(&mut existing.alternate_links);
+    alternate_links.append(&mut candidate.alternate_links);
+    if let Some(link) = candidate.best_link() {
+        alternate_links.push(link);
+    }
+    alternate_links.retain(|link| Some(link) != selected_link.as_ref());
+    alternate_links.sort();
+    alternate_links.dedup();
+    existing.alternate_links = alternate_links;
+}
+
+fn version_quality(work: &Work) -> (bool, bool, bool, &str) {
+    let has_pdf = work.oa_pdf_url().is_some();
+    let has_abstract = work
+        .abstract_inverted_index
+        .as_ref()
+        .is_some_and(|index| !index.is_empty());
+    let is_published = [&work.primary_location, &work.best_oa_location]
+        .into_iter()
+        .flatten()
+        .any(|location| location.version.as_deref() == Some("publishedVersion"));
+    let publication_date = work.publication_date.as_deref().unwrap_or("");
+
+    (has_pdf, has_abstract, is_published, publication_date)
 }
 
 /// Run a single `/works` query for the given filter (or return empty if `None`).
@@ -619,12 +702,9 @@ async fn fetch_works_for_filter(filter: Option<String>, config: &Config) -> Vec<
 fn work_to_item(work: &Work) -> rss::Item {
     let link = work.best_link();
 
-    let guid = link.clone().map(|value| {
-        GuidBuilder::default()
-            .value(value)
-            .permalink(true)
-            .build()
-    });
+    let guid = link
+        .clone()
+        .map(|value| GuidBuilder::default().value(value).permalink(true).build());
 
     let source = work.venue().map(|name| Source {
         url: work
@@ -633,14 +713,25 @@ fn work_to_item(work: &Work) -> rss::Item {
         title: Some(name),
     });
 
-    let description = match (work.venue(), work.cited_by_count) {
-        (Some(venue), Some(cites)) if cites > 0 => {
-            Some(format!("{venue} — cited {cites} times"))
-        }
+    let mut description = match (work.venue(), work.cited_by_count) {
+        (Some(venue), Some(cites)) if cites > 0 => Some(format!("{venue} — cited {cites} times")),
         (Some(venue), _) => Some(venue),
         (None, Some(cites)) if cites > 0 => Some(format!("Cited {cites} times")),
         (None, _) => None,
     };
+
+    if !work.alternate_links.is_empty() {
+        let label = if work.alternate_links.len() == 1 {
+            "Alternate version"
+        } else {
+            "Alternate versions"
+        };
+        let alternates = format!("{label}: {}", work.alternate_links.join(", "));
+        description = Some(match description {
+            Some(current) => format!("{current}\n{alternates}"),
+            None => alternates,
+        });
+    }
 
     let enclosure = work.oa_pdf_url().map(|pdf_url| Enclosure {
         url: pdf_url,
@@ -681,14 +772,59 @@ mod tests {
         .unwrap()
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn version_work(
+        id: &str,
+        doi: &str,
+        title: &str,
+        date: &str,
+        author_ids: &[&str],
+        version: &str,
+        pdf_url: Option<&str>,
+        has_abstract: bool,
+    ) -> Work {
+        let authorships = author_ids
+            .iter()
+            .map(|id| serde_json::json!({"author": {"id": id}}))
+            .collect::<Vec<_>>();
+        let best_oa_location = pdf_url.map(|url| {
+            serde_json::json!({
+                "pdf_url": url,
+                "version": version
+            })
+        });
+        let abstract_index = has_abstract.then(|| serde_json::json!({"Abstract": [0]}));
+
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "doi": doi,
+            "title": title,
+            "publication_date": date,
+            "authorships": authorships,
+            "primary_location": {
+                "landing_page_url": doi,
+                "version": version
+            },
+            "best_oa_location": best_oa_location,
+            "abstract_inverted_index": abstract_index
+        }))
+        .unwrap()
+    }
+
     fn ids(works: &[Work]) -> Vec<Option<String>> {
         works.iter().map(|w| w.id.clone()).collect()
     }
 
     #[test]
     fn merge_dedupes_by_id_across_both_sets() {
-        let primary = vec![work(Some("W1"), Some("2025-01-01")), work(Some("W2"), Some("2025-03-01"))];
-        let secondary = vec![work(Some("W2"), Some("2025-03-01")), work(Some("W3"), Some("2025-02-01"))];
+        let primary = vec![
+            work(Some("W1"), Some("2025-01-01")),
+            work(Some("W2"), Some("2025-03-01")),
+        ];
+        let secondary = vec![
+            work(Some("W2"), Some("2025-03-01")),
+            work(Some("W3"), Some("2025-02-01")),
+        ];
 
         let merged = merge_works(primary, secondary);
 
@@ -715,5 +851,68 @@ mod tests {
         assert_eq!(merged[0].publication_date.as_deref(), Some("2025-05-01"));
         assert!(merged[1].publication_date.is_none());
         assert!(merged[2].publication_date.is_none());
+    }
+
+    #[test]
+    fn merge_groups_versions_and_keeps_the_richest_accessible_record() {
+        let published = version_work(
+            "W-published",
+            "https://doi.org/10.1109/example",
+            "DNAS-Bench: Deterministic Nucleic Acid Screener Benchmarking",
+            "2026-05-21",
+            &["A1", "A2", "A3"],
+            "publishedVersion",
+            None,
+            false,
+        );
+        let preprint = version_work(
+            "W-preprint",
+            "https://doi.org/10.64898/example",
+            "DNAS Bench — Deterministic Nucleic Acid Screener Benchmarking",
+            "2026-07-20",
+            &["A3", "A1", "A2"],
+            "acceptedVersion",
+            Some("https://example.com/preprint.pdf"),
+            true,
+        );
+
+        let merged = merge_works(vec![published], vec![preprint]);
+
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].id.as_deref(), Some("W-preprint"));
+        assert_eq!(
+            merged[0].alternate_links,
+            vec!["https://doi.org/10.1109/example"]
+        );
+        assert!(work_to_item(&merged[0])
+            .description
+            .as_deref()
+            .is_some_and(|description| description.contains("Alternate version:")));
+    }
+
+    #[test]
+    fn merge_keeps_same_title_with_different_authors_separate() {
+        let first = version_work(
+            "W1",
+            "https://doi.org/10.example/one",
+            "Shared title",
+            "2026-05-21",
+            &["A1", "A2"],
+            "publishedVersion",
+            None,
+            false,
+        );
+        let second = version_work(
+            "W2",
+            "https://doi.org/10.example/two",
+            "Shared title",
+            "2026-05-22",
+            &["A1", "A3"],
+            "publishedVersion",
+            None,
+            false,
+        );
+
+        assert_eq!(merge_works(vec![first], vec![second]).len(), 2);
     }
 }

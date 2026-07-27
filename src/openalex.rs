@@ -40,6 +40,8 @@ pub struct Work {
     pub primary_location: Option<Location>,
     pub best_oa_location: Option<Location>,
     pub abstract_inverted_index: Option<HashMap<String, Vec<u32>>>,
+    #[serde(default)]
+    pub alternate_links: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,6 +54,7 @@ pub struct Location {
     pub landing_page_url: Option<String>,
     pub pdf_url: Option<String>,
     pub source: Option<Source>,
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
