@@ -548,11 +548,24 @@ async fn fetch_works(request: &FeedRequest) -> Vec<Work> {
     merge_works(author_works, journal_works)
 }
 
-/// Merge two result sets, deduplicating exact OpenAlex records and conservatively grouping
-/// versions with the same normalized title and complete author-id set.
+/// A signature that identifies a work well enough to treat two records as versions of
+/// each other. Two works are grouped when *any* of their keys match.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+enum VersionKey {
+    /// Identical DOIs always denote the same work.
+    Doi(String),
+    /// Normalized title plus the complete set of OpenAlex author ids.
+    AuthorIds(String, Vec<String>),
+    /// Normalized title plus the complete set of normalized author names. Catches the
+    /// common case where OpenAlex minted two author entities for the same person.
+    AuthorNames(String, Vec<String>),
+}
+
+/// Merge two result sets, deduplicating exact OpenAlex records and grouping versions that
+/// share a DOI, or a normalized title together with the same author ids *or* author names.
 fn merge_works(primary: Vec<Work>, secondary: Vec<Work>) -> Vec<Work> {
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut version_groups: HashMap<(String, Vec<String>), usize> = HashMap::new();
+    let mut version_groups: HashMap<VersionKey, usize> = HashMap::new();
     let mut works: Vec<Work> = Vec::new();
 
     for work in primary.into_iter().chain(secondary) {
@@ -560,15 +573,26 @@ fn merge_works(primary: Vec<Work>, secondary: Vec<Work>) -> Vec<Work> {
             continue;
         }
 
-        if let Some(key) = version_key(&work) {
-            if let Some(index) = version_groups.get(&key) {
-                merge_work_version(&mut works[*index], work);
-                continue;
-            }
-            version_groups.insert(key, works.len());
-        }
+        let keys = version_keys(&work);
+        let group = keys.iter().find_map(|key| version_groups.get(key).copied());
 
-        works.push(work);
+        match group {
+            Some(index) => {
+                merge_work_version(&mut works[index], work);
+                // Register the incoming record's keys too, so later records matching
+                // either variant land in the same group.
+                for key in keys {
+                    version_groups.entry(key).or_insert(index);
+                }
+            }
+            None => {
+                let index = works.len();
+                for key in keys {
+                    version_groups.insert(key, index);
+                }
+                works.push(work);
+            }
+        }
     }
 
     works.sort_by(|a, b| {
@@ -580,19 +604,32 @@ fn merge_works(primary: Vec<Work>, secondary: Vec<Work>) -> Vec<Work> {
     works
 }
 
-fn version_key(work: &Work) -> Option<(String, Vec<String>)> {
-    let title = work.title.as_ref().or(work.display_name.as_ref())?;
-    let title = normalize_title(title);
-    if title.is_empty() {
-        return None;
+fn version_keys(work: &Work) -> Vec<VersionKey> {
+    let mut keys = Vec::new();
+
+    if let Some(doi) = work.doi.as_deref().map(normalize_doi) {
+        if !doi.is_empty() {
+            keys.push(VersionKey::Doi(doi));
+        }
     }
 
-    let authorships = work.authorships.as_ref()?;
+    let title = work
+        .title
+        .as_ref()
+        .or(work.display_name.as_ref())
+        .map(|title| normalize_title(title))
+        .filter(|title| !title.is_empty());
+
+    let (Some(title), Some(authorships)) = (title, work.authorships.as_ref()) else {
+        return keys;
+    };
     if authorships.is_empty() {
-        return None;
+        return keys;
     }
 
-    let mut author_ids = authorships
+    // Only usable when *every* authorship carries an id: a partial set would let two
+    // genuinely different works collide.
+    let author_ids = authorships
         .iter()
         .map(|authorship| {
             authorship
@@ -602,11 +639,92 @@ fn version_key(work: &Work) -> Option<(String, Vec<String>)> {
                 .as_ref()
                 .map(|id| normalize_id(id))
         })
-        .collect::<Option<Vec<_>>>()?;
-    author_ids.sort();
-    author_ids.dedup();
+        .collect::<Option<Vec<_>>>();
+    if let Some(mut author_ids) = author_ids {
+        author_ids.sort();
+        author_ids.dedup();
+        if !author_ids.is_empty() {
+            keys.push(VersionKey::AuthorIds(title.clone(), author_ids));
+        }
+    }
 
-    (!author_ids.is_empty()).then_some((title, author_ids))
+    // Author names come in two flavours that disagree surprisingly often (`F Vermeire`
+    // vs the raw `Florence Vermeire`), so key on each variant independently.
+    let name_sources: [fn(&crate::openalex::Authorship) -> Option<&str>; 3] = [
+        |authorship| {
+            authorship
+                .author
+                .as_ref()
+                .and_then(|author| author.display_name.as_deref())
+                .or(authorship.raw_author_name.as_deref())
+        },
+        |authorship| {
+            authorship
+                .author
+                .as_ref()
+                .and_then(|author| author.display_name.as_deref())
+        },
+        |authorship| authorship.raw_author_name.as_deref(),
+    ];
+
+    for source in name_sources {
+        let author_names = authorships
+            .iter()
+            .map(|authorship| {
+                let name = normalize_author_name(source(authorship)?);
+                (!name.is_empty()).then_some(name)
+            })
+            .collect::<Option<Vec<_>>>();
+
+        if let Some(mut author_names) = author_names {
+            author_names.sort();
+            author_names.dedup();
+            if !author_names.is_empty() {
+                let key = VersionKey::AuthorNames(title.clone(), author_names);
+                if !keys.contains(&key) {
+                    keys.push(key);
+                }
+            }
+        }
+    }
+
+    keys
+}
+
+/// Reduce a DOI to a comparable form: bare lowercase `10.x/y` without the resolver prefix.
+fn normalize_doi(doi: &str) -> String {
+    let doi = doi.trim().to_lowercase();
+    let doi = doi
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_start_matches("dx.")
+        .trim_start_matches("doi.org/")
+        .trim_start_matches("doi:");
+    doi.trim().trim_end_matches('/').to_string()
+}
+
+/// Normalize an author name into an order-independent set of name tokens, so that
+/// `Tang, Sophia`, `Sophia Tang` and `Sophia  TANG` all compare equal. Single-character
+/// initials are dropped so `S. Tang` also matches, unless that would leave nothing.
+fn normalize_author_name(name: &str) -> String {
+    let tokens = name
+        .split(|character: char| !character.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>();
+
+    let mut significant = tokens
+        .iter()
+        .filter(|token| token.chars().count() > 1)
+        .cloned()
+        .collect::<Vec<_>>();
+    if significant.is_empty() {
+        significant = tokens;
+    }
+
+    significant.sort();
+    significant.dedup();
+    significant.join(" ")
 }
 
 fn normalize_title(title: &str) -> String {
@@ -923,6 +1041,117 @@ mod tests {
         );
 
         assert_eq!(merge_works(vec![first], vec![second]).len(), 2);
+    }
+
+    #[test]
+    fn merge_groups_duplicate_author_entities_with_same_title() {
+        // OpenAlex sometimes mints two author ids for the same person, which used to
+        // defeat the author-id-only version key ("Expanding Flow Maps").
+        let first: Work = serde_json::from_value(serde_json::json!({
+            "id": "https://openalex.org/W7171268167",
+            "title": "Expanding Flow Maps",
+            "publication_date": "2026-07-23",
+            "authorships": [
+                {"author": {"id": "https://openalex.org/A5143604557", "display_name": "Sophia Tang"}},
+                {"author": {"id": "https://openalex.org/A5016342562", "display_name": "Pranam Chatterjee"}}
+            ]
+        }))
+        .unwrap();
+        let second: Work = serde_json::from_value(serde_json::json!({
+            "id": "https://openalex.org/W7170527570",
+            "doi": "https://doi.org/10.48550/arxiv.2607.21585",
+            "title": "Expanding Flow Maps",
+            "publication_date": "2026-07-23",
+            "authorships": [
+                {"author": {"id": "https://openalex.org/A5143533688"}, "raw_author_name": "Tang, Sophia"},
+                {"author": {"id": "https://openalex.org/A5016342562", "display_name": "Pranam Chatterjee"}}
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(merge_works(vec![first], vec![second]).len(), 1);
+    }
+
+    #[test]
+    fn merge_groups_records_sharing_a_doi() {
+        let first: Work = serde_json::from_value(serde_json::json!({
+            "id": "W1",
+            "doi": "https://doi.org/10.1234/Example",
+            "title": "One title"
+        }))
+        .unwrap();
+        let second: Work = serde_json::from_value(serde_json::json!({
+            "id": "W2",
+            "doi": "doi:10.1234/example",
+            "title": "A differently recorded title"
+        }))
+        .unwrap();
+
+        assert_eq!(merge_works(vec![first], vec![second]).len(), 1);
+    }
+
+    #[test]
+    fn merge_groups_versions_when_only_raw_author_names_agree() {
+        // chemRxiv v1/v2: display names diverge (`F Vermeire` vs `Florence H. Vermeire`)
+        // while the raw names recorded on the authorship agree.
+        let v1: Work = serde_json::from_value(serde_json::json!({
+            "id": "W-v1",
+            "doi": "https://doi.org/10.26434/chemrxiv.15003516/v1",
+            "title": "QuantumPioneer: Scalable generation of quantum chemical data",
+            "publication_date": "2026-05-18",
+            "authorships": [
+                {"author": {"id": "A5090585248", "display_name": "F Vermeire"}, "raw_author_name": "Florence Vermeire"},
+                {"author": {"id": "A5051475129", "display_name": "William H. Green"}, "raw_author_name": "William H. Green"}
+            ]
+        }))
+        .unwrap();
+        let v2: Work = serde_json::from_value(serde_json::json!({
+            "id": "W-v2",
+            "doi": "https://doi.org/10.26434/chemrxiv.15003516/v2",
+            "title": "QuantumPioneer: Scalable generation of quantum chemical data",
+            "publication_date": "2026-07-12",
+            "authorships": [
+                {"author": {"id": "A5022062241", "display_name": "Florence H. Vermeire"}, "raw_author_name": "Florence Vermeire"},
+                {"author": {"id": "A5051475129", "display_name": "William H. Green"}, "raw_author_name": "William H. Green"}
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(merge_works(vec![v1], vec![v2]).len(), 1);
+    }
+
+    #[test]
+    fn merge_keeps_same_title_with_different_author_names_separate() {
+        let first: Work = serde_json::from_value(serde_json::json!({
+            "id": "W1",
+            "title": "Shared title",
+            "authorships": [{"author": {"display_name": "Ada Lovelace"}}]
+        }))
+        .unwrap();
+        let second: Work = serde_json::from_value(serde_json::json!({
+            "id": "W2",
+            "title": "Shared title",
+            "authorships": [{"author": {"display_name": "Grace Hopper"}}]
+        }))
+        .unwrap();
+
+        assert_eq!(merge_works(vec![first], vec![second]).len(), 2);
+    }
+
+    #[test]
+    fn author_names_normalize_order_case_and_initials() {
+        assert_eq!(
+            normalize_author_name("Tang, Sophia"),
+            normalize_author_name("Sophia  TANG")
+        );
+        assert_eq!(
+            normalize_author_name("S. Tang"),
+            normalize_author_name("Tang")
+        );
+        assert_ne!(
+            normalize_author_name("Ada Lovelace"),
+            normalize_author_name("Grace Hopper")
+        );
     }
 
     #[test]

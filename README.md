@@ -88,12 +88,14 @@ A feed requires at least one author or journal. If both are present, results are
 of the authors' publications and recent publications in the journals. Results are
 de-duplicated and sorted newest-first. A topic filter applies to both sides of the union.
 
-OpenAlex sometimes stores a preprint and its published paper as separate works. The feed
-conservatively groups records only when their normalized titles and complete OpenAlex author-ID
-sets match. It retains the version with an open PDF, then an abstract, then published status,
-then the newest date. Links to the other versions are included in the retained item's
-description. Records with missing author IDs are kept separate rather than risking a false
-match.
+OpenAlex sometimes stores a preprint and its published paper as separate works, and it
+occasionally mints two author entities for the same person. The feed groups records when they
+share a DOI, or when their normalized titles match **and** either their complete OpenAlex
+author-ID sets or their normalized author-name sets match. Name comparison is order-, case- and
+initial-insensitive (`Tang, Sophia` == `S. Tang`). It retains the version with an open PDF, then
+an abstract, then published status, then the newest date. Links to the other versions are
+included in the retained item's description. Records whose titles or author lists cannot be
+compared are kept separate rather than risking a false match.
 
 The config is read on every request. Identical resolved queries are cached for up to one hour,
 so restarting the application clears the cache immediately. In Docker, changing the repository

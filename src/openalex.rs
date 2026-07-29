@@ -47,6 +47,7 @@ pub struct Work {
 #[derive(Debug, Deserialize)]
 pub struct Authorship {
     pub author: Option<Author>,
+    pub raw_author_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
